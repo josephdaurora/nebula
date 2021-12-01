@@ -12,10 +12,7 @@ import com.google.api.services.sheets.v4.Sheets;
 import com.google.api.services.sheets.v4.SheetsScopes;
 import com.google.api.services.sheets.v4.model.*;
 
-import javax.script.ScriptException;
 import java.io.IOException;
-import java.net.URISyntaxException;
-import java.security.GeneralSecurityException;
 import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -35,33 +32,23 @@ public class analyzeData {
     private static final String CALLBACK_URI = "YOUR CALLBACK URL HERE";
 
 
-    private static String stateToken;
     private static GoogleAuthorizationCodeFlow flow;
 
     public analyzeData() {
         flow = new GoogleAuthorizationCodeFlow.Builder(HTTP_TRANSPORT,
                 JSON_FACTORY, clientID, clientSecret, SCOPES).setAccessType("offline").build();
 
-        generateStateToken();
     }
 
     public String buildLoginUrl() {
 
         final GoogleAuthorizationCodeRequestUrl url = flow.newAuthorizationUrl();
-
+        SecureRandom sr1 = new SecureRandom();
+        String stateToken = "google;" + sr1.nextInt();
         return url.setRedirectUri(CALLBACK_URI).setState(stateToken).build();
     }
 
-    static void generateStateToken(){
-
-        SecureRandom sr1 = new SecureRandom();
-
-        stateToken = "google;"+sr1.nextInt();
-
-    }
-
-
-    public static void wrapper(String authCode, String spreadsheetID, int numStudents, int numQuestions) throws GeneralSecurityException, IOException, URISyntaxException, ScriptException {
+    public static void wrapper(String authCode, String spreadsheetID, int numStudents, int numQuestions) throws IOException {
         GoogleTokenResponse tokenResponse = flow.newTokenRequest(authCode).setRedirectUri(CALLBACK_URI).execute();
         credential = flow.createAndStoreCredential(tokenResponse, null);
 
@@ -71,11 +58,11 @@ public class analyzeData {
         addScoringColumn(spreadsheetID, gradedAssignmentWorksheetID);
         coloredHighlight(spreadsheetID, gradedAssignmentWorksheetID, numStudents, numQuestions);
         formatAsPercentage(spreadsheetID,gradedAssignmentWorksheetID,4, numStudents+5, 4 ,5);
-        gradeAssignment(spreadsheetID,"Graded Assignment", "Graded Assignment", numStudents,numQuestions, 0 , 0);
+        gradeAssignment(spreadsheetID,"Graded Assignment", numStudents,numQuestions, 0 , 0);
         int gradesSummaryWorksheetID = newWorksheet(spreadsheetID, "Grades Summary", 3, false);
-        formatGradesSummary(spreadsheetID, gradesSummaryWorksheetID,numStudents,numQuestions);
+        formatGradesSummary(spreadsheetID, gradesSummaryWorksheetID,numStudents);
         int mostMissedWorksheetID = newWorksheet(spreadsheetID, "Most Missed Questions", 4, false);
-        formatMostMissed(spreadsheetID, mostMissedWorksheetID, numQuestions);
+        formatMostMissed(spreadsheetID, mostMissedWorksheetID,numStudents, numQuestions);
         int gradesSummarybyScoreWorksheetID = duplicateSpreadsheet(spreadsheetID,gradesSummaryWorksheetID, 5);
         changeSheetTitle(credential, spreadsheetID, gradesSummarybyScoreWorksheetID, "Grades Summary by Score");
         sortRange(spreadsheetID, gradesSummarybyScoreWorksheetID, 2, numStudents + 3, 1, 3, 2, "DESCENDING");
@@ -83,21 +70,108 @@ public class analyzeData {
         choiceAnalysis(spreadsheetID, choiceAnalysisWorksheetID, numStudents, numQuestions);
     }
 
+    public static int newWorksheet(String spreadsheetID, String sheetName, int numSheets, boolean isHidden) throws IOException{
 
-    public static String numberstoCoordinates(int columnNumber, int rowNumber) {
+        Sheets service = builderWithCredentials(credential);
+        List<Request> requests = new ArrayList<>();
+        requests.add(new Request().setAddSheet(new AddSheetRequest().setProperties(new SheetProperties().setTitle(sheetName).setHidden(isHidden))));
+
+        BatchUpdateSpreadsheetRequest body = new BatchUpdateSpreadsheetRequest()
+                .setRequests(requests);
+
+        service.spreadsheets()
+                .batchUpdate(spreadsheetID, body)
+                .execute();
+
+        return getWorksheetID(credential, spreadsheetID, numSheets);
+    }
+
+    public static void addScoringColumn(String spreadsheetID, int worksheetID) throws  IOException {
+
+        Sheets service = builderWithCredentials(credential);
+
+        List<Request> requests = new ArrayList<>();
+        requests.add(new Request()
+                .setInsertDimension(new InsertDimensionRequest().setRange(new DimensionRange()
+                        .setSheetId(worksheetID)
+                        .setDimension("COLUMNS")
+                        .setStartIndex(4)
+                        .setEndIndex(5))));
 
 
-        StringBuilder result = new StringBuilder();
+        requests.add(new Request()
+                .setRepeatCell(new RepeatCellRequest()
+                        .setRange(new GridRange()
+                                .setSheetId(worksheetID)
+                                .setStartColumnIndex(4)
+                                .setEndColumnIndex(5)
+                                .setStartRowIndex(3)
+                                .setEndRowIndex(4))
 
-        while (columnNumber > 0) {
-            int index = (columnNumber - 1) % 26;
-            result.append((char) (index + 'A'));
-            columnNumber = (columnNumber - 1) / 26;
+                        .setCell(new CellData()
+                                .setUserEnteredValue(new ExtendedValue().setStringValue("Scores"))
+                                .setUserEnteredFormat(new CellFormat()
+                                        .setTextFormat(new TextFormat()
+                                                .setFontSize(12)
+                                                .setBold(true)
+
+                                        )
+                                        .setHorizontalAlignment("CENTER")
+                                )
+                        )
+                        .setFields("*")));
+
+
+        BatchUpdateSpreadsheetRequest body = new BatchUpdateSpreadsheetRequest()
+                .setRequests(requests);
+        service.spreadsheets()
+                .batchUpdate(spreadsheetID, body)
+                .execute();
+
+    }
+
+    public static int getWorksheetID(Credential credential, String spreadsheetID, int sheetPosition) throws IOException {
+
+        Sheets service = builderWithCredentials(credential);
+
+        Spreadsheet response1 = service.spreadsheets().get(spreadsheetID).setIncludeGridData(false)
+                .execute();
+
+        return response1.getSheets().get(sheetPosition).getProperties().getSheetId();
+    }
+
+    public static void removePreviousAnalyses(String spreadsheetID) throws IOException {
+        Sheets service = builderWithCredentials(credential);
+
+
+        Spreadsheet request = service.spreadsheets().get(spreadsheetID).execute();
+        List<Sheet> listofSheets = request.getSheets();
+        List<String> sheetNames = Arrays.asList("Graded Assignment", "Grades Summary", "Most Missed Questions", "Grades Summary by Score", "Answer Choice Analysis", "Number of Answers Per Question");
+
+
+        for(int i = 0; i < listofSheets.size(); i++)
+        {
+            for (int j = 0; j < sheetNames.size(); j++)
+            {
+
+                if (listofSheets.get(i).getProperties().getTitle().equalsIgnoreCase(sheetNames.get(j))) {
+                    deleteSheet(spreadsheetID, listofSheets.get(i).getProperties().getSheetId());
+                }
+            }
+
         }
 
-        result.append(rowNumber);
-        return result.toString();
+    }
 
+    public static void deleteSheet(String spreadsheetID, int worksheetID) throws IOException {
+        Sheets service = builderWithCredentials(credential);
+
+
+        List<Request> requests = new ArrayList<>();
+
+        requests.add(new Request().setDeleteSheet(new DeleteSheetRequest().setSheetId(worksheetID)));
+        BatchUpdateSpreadsheetRequest body = new BatchUpdateSpreadsheetRequest().setRequests(requests);
+        service.spreadsheets().batchUpdate(spreadsheetID, body).execute();
     }
 
     public static int duplicateSpreadsheet(String spreadsheetID, int startingSheetID, int numSheets) throws IOException {
@@ -115,16 +189,6 @@ public class analyzeData {
         return getWorksheetID(credential, spreadsheetID, numSheets);
 
 
-    }
-
-    public static int getWorksheetID(Credential credential, String spreadsheetID, int sheetPosition) throws IOException {
-
-        Sheets service = builderWithCredentials(credential);
-
-        Spreadsheet response1 = service.spreadsheets().get(spreadsheetID).setIncludeGridData(false)
-                .execute();
-
-        return response1.getSheets().get(sheetPosition).getProperties().getSheetId();
     }
 
     public static void coloredHighlight(String spreadsheetID, int worksheetID, int numStudents, int numQuestions) throws IOException {
@@ -203,35 +267,22 @@ public class analyzeData {
 
     }
 
-    public static void addScoringColumn(String spreadsheetID, int worksheetID) throws  IOException {
+    public static void formatAsPercentage(String spreadsheetID, int worksheetID, int startRow, int endRow, int startColumn, int endColumn) throws IOException {
 
         Sheets service = builderWithCredentials(credential);
 
         List<Request> requests = new ArrayList<>();
         requests.add(new Request()
-                .setInsertDimension(new InsertDimensionRequest().setRange(new DimensionRange().setSheetId(worksheetID).setDimension("COLUMNS").setStartIndex(4).setEndIndex(5))));
-
-
-        requests.add(new Request()
-                .setRepeatCell(new RepeatCellRequest()
+                .setRepeatCell(new RepeatCellRequest().setCell(new CellData().setUserEnteredFormat(new CellFormat()
+                                .setNumberFormat(new NumberFormat()
+                                        .setType("PERCENT")
+                                        .setPattern("#,0%"))))
                         .setRange(new GridRange()
                                 .setSheetId(worksheetID)
-                                .setStartColumnIndex(4)
-                                .setEndColumnIndex(5)
-                                .setStartRowIndex(3)
-                                .setEndRowIndex(4))
-
-                        .setCell(new CellData()
-                                .setUserEnteredValue(new ExtendedValue().setStringValue("Scores"))
-                                .setUserEnteredFormat(new CellFormat()
-                                        .setTextFormat(new TextFormat()
-                                                .setFontSize(12)
-                                                .setBold(true)
-
-                                        )
-                                        .setHorizontalAlignment("CENTER")
-                                )
-                        )
+                                .setStartRowIndex(startRow)
+                                .setEndRowIndex(endRow)
+                                .setStartColumnIndex(startColumn)
+                                .setEndColumnIndex(endColumn))
                         .setFields("*")));
 
 
@@ -243,7 +294,7 @@ public class analyzeData {
 
     }
 
-    public static void gradeAssignment(String spreadsheetID, String sourceWorksheetName, String destinationWorksheetName, int numStudents, int numQuestions, int destinationColumnOffset, int destinationRowOffset) throws IOException {
+    public static void gradeAssignment(String spreadsheetID, String sourceWorksheetName, int numStudents, int numQuestions, int destinationColumnOffset, int destinationRowOffset) throws IOException {
 
         Sheets service = builderWithCredentials(credential);
 
@@ -257,7 +308,7 @@ public class analyzeData {
                 formula += "EQ('" + sourceWorksheetName + "'!" + numberstoCoordinates(j, i + 4) + ",'" + sourceWorksheetName + "'!" + numberstoCoordinates(2, j - 2) + ")+";
             }
 
-            if ((formula != null) && (formula.length() > 0)) {
+            if (formula.length() > 0) {
                 formula = formula.substring(0, formula.length() - 1);
                 formula += ")/" + numQuestions + ")%";
             }
@@ -265,8 +316,9 @@ public class analyzeData {
             values = Arrays.asList(Arrays.asList(formula));
 
             requests.add(new ValueRange()
-                    .setRange("'" + destinationWorksheetName + "'!" + numberstoCoordinates(5 + destinationColumnOffset, i + 4 + destinationRowOffset))
+                    .setRange("'Graded Assignment'!" + numberstoCoordinates(5 + destinationColumnOffset, i + 4 + destinationRowOffset))
                     .setValues(values));
+
         }
         BatchUpdateValuesRequest body = new BatchUpdateValuesRequest()
                 .setValueInputOption("USER_ENTERED")
@@ -276,46 +328,10 @@ public class analyzeData {
 
     }
 
-    public static void formatAsPercentage(String spreadsheetID, int worksheetID, int startRow, int endRow, int startColumn, int endColumn) throws IOException {
-
-        Sheets service = builderWithCredentials(credential);
-
-        List<Request> requests = new ArrayList<>();
-        requests.add(new Request()
-                .setRepeatCell(new RepeatCellRequest().setCell(new CellData().setUserEnteredFormat(new CellFormat().setNumberFormat(new NumberFormat().setType("PERCENT").setPattern("#,0%")))).setRange(new GridRange().setSheetId(worksheetID).setStartRowIndex(startRow).setEndRowIndex(endRow).setStartColumnIndex(startColumn).setEndColumnIndex(endColumn))
-                        .setFields("*")));
-
-
-        BatchUpdateSpreadsheetRequest body = new BatchUpdateSpreadsheetRequest()
-                .setRequests(requests);
-        service.spreadsheets()
-                .batchUpdate(spreadsheetID, body)
-                .execute();
-
-    }
-
-    public static int newWorksheet(String spreadsheetID, String sheetName, int numSheets, boolean isHidden) throws IOException{
-
-        Sheets service = builderWithCredentials(credential);
-        List<Request> requests = new ArrayList<>();
-        requests.add(new Request().setAddSheet(new AddSheetRequest().setProperties(new SheetProperties().setTitle(sheetName).setHidden(isHidden))));
-
-        BatchUpdateSpreadsheetRequest body = new BatchUpdateSpreadsheetRequest()
-                .setRequests(requests);
-
-        service.spreadsheets()
-                .batchUpdate(spreadsheetID, body)
-                .execute();
-
-        return getWorksheetID(credential, spreadsheetID, numSheets);
-    }
-
-    public static void formatGradesSummary(String spreadsheetID, int worksheetID, int numStudents, int numQuestions) throws  IOException {
-        copyandPaste(credential, spreadsheetID, getWorksheetID(credential, spreadsheetID, 2), worksheetID, 4, numStudents + 4, 3, 4, 2, numStudents + 3, 1, 2, "PASTE_VALUES", "NORMAL");
+    public static void formatGradesSummary(String spreadsheetID, int worksheetID, int numStudents) throws IOException {
         formatAsPercentage(spreadsheetID, worksheetID, 2, numStudents + 2, 2, 3);
-        gradeAssignment(spreadsheetID, "Graded Assignment", "Grades Summary", numStudents, numQuestions, -2, -2);
+        copyandPaste(credential, spreadsheetID, getWorksheetID(credential, spreadsheetID, 2), worksheetID, 4, numStudents + 4, 3, 5, 2, numStudents + 3, 1, 3, "PASTE_VALUES", "NORMAL");
         headingCells(credential, spreadsheetID, worksheetID, 0, 4, 0, 1, "MERGE_ROWS", 16, "Grades Summary");
-
     }
 
     public static void copyandPaste(Credential credential, String spreadsheetID, int originWorksheetID, int destinationWorksheetID, int or_startRow, int or_endRow, int or_startColumn, int or_endColumn, int dest_startRow, int dest_endRow, int dest_startColumn, int dest_endColumn, String pasteType, String pasteOrientation) throws IOException {
@@ -324,8 +340,20 @@ public class analyzeData {
 
         List<Request> requests = new ArrayList<>();
         requests.add(new Request().setCopyPaste(new CopyPasteRequest()
-                .setSource(new GridRange().setSheetId(originWorksheetID).setStartRowIndex(or_startRow).setEndRowIndex(or_endRow).setStartColumnIndex(or_startColumn).setEndColumnIndex(or_endColumn))
-                .setDestination(new GridRange().setSheetId(destinationWorksheetID).setStartRowIndex(dest_startRow).setEndRowIndex(dest_endRow).setStartColumnIndex(dest_startColumn).setEndColumnIndex(dest_endColumn)).setPasteType(pasteType).setPasteOrientation(pasteOrientation)));
+                .setSource(new GridRange()
+                        .setSheetId(originWorksheetID)
+                        .setStartRowIndex(or_startRow)
+                        .setEndRowIndex(or_endRow)
+                        .setStartColumnIndex(or_startColumn)
+                        .setEndColumnIndex(or_endColumn))
+                .setDestination(new GridRange()
+                        .setSheetId(destinationWorksheetID)
+                        .setStartRowIndex(dest_startRow)
+                        .setEndRowIndex(dest_endRow)
+                        .setStartColumnIndex(dest_startColumn)
+                        .setEndColumnIndex(dest_endColumn))
+                .setPasteType(pasteType)
+                .setPasteOrientation(pasteOrientation)));
 
         BatchUpdateSpreadsheetRequest body = new BatchUpdateSpreadsheetRequest()
                 .setRequests(requests);
@@ -334,15 +362,15 @@ public class analyzeData {
                 .execute();
     }
 
-    public static void formatMostMissed(String spreadsheetID, int worksheetID, int numQuestions) throws IOException {
+    public static void formatMostMissed(String spreadsheetID, int worksheetID, int numStudents, int numQuestions) throws IOException {
         headingCells(credential, spreadsheetID, worksheetID, 0, 4, 0, 1, "MERGE_ROWS", 16, "Most Missed Questions");
         copyandPaste(credential, spreadsheetID, getWorksheetID(credential, spreadsheetID, 2), worksheetID, 3, numQuestions + 3, 0, 1, 2, numQuestions + 4, 1, 2, "PASTE_VALUES", "NORMAL");
-        missedFrequency(spreadsheetID, "Graded Assignment", "Most Missed Questions", numQuestions);
+        missedFrequency(spreadsheetID, "Graded Assignment", "Most Missed Questions", numStudents, numQuestions);
         sortRange(spreadsheetID, worksheetID, 2, numQuestions + 3, 1, 3, 2, "DESCENDING");
 
     }
 
-    public static void missedFrequency(String spreadsheetID, String sourceWorksheetName, String destinationWorksheetName, int numQuestions) throws IOException {
+    public static void missedFrequency(String spreadsheetID, String sourceWorksheetName, String destinationWorksheetName, int numStudents, int numQuestions) throws IOException {
 
         Sheets service = builderWithCredentials(credential);
 
@@ -350,9 +378,9 @@ public class analyzeData {
         List<ValueRange> requests = new ArrayList<>();
 
         for (int i = 6; i <= numQuestions + 5; i++) {
-            String formula = "=" + numQuestions;
+            String formula = "=" + numStudents;
 
-            formula += "-COUNTIF('" + sourceWorksheetName + "'!" + numberstoCoordinates(i, 5) + ":" + numberstoCoordinates(i, numQuestions + 4) + ",'" + sourceWorksheetName + "'!" + numberstoCoordinates(2, i - 2) + ")";
+            formula += "-COUNTIF('" + sourceWorksheetName + "'!" + numberstoCoordinates(i, 5) + ":" + numberstoCoordinates(i, numStudents + 4) + ",'" + sourceWorksheetName + "'!" + numberstoCoordinates(2, i - 2) + ")";
 
             formula = formula.substring(0, formula.length() - 1);
             formula += ")";
@@ -370,16 +398,24 @@ public class analyzeData {
         service.spreadsheets().values().batchUpdate(spreadsheetID, body).execute();
     }
 
-    public static void sortRange(String spreadsheetID, int worksheetID, int startRow, int endRow, int startColumn, int endColumn, int firstDimension, String sortOrder1) throws IOException {
+    public static void sortRange(String spreadsheetID, int worksheetID, int startRow, int endRow, int startColumn, int endColumn, int firstDimension, String sortOrder) throws IOException {
 
         Sheets service = builderWithCredentials(credential);
 
         SortSpec sortSpec = new SortSpec();
-        sortSpec.setSortOrder(sortOrder1).setDimensionIndex(firstDimension);
+        sortSpec.setSortOrder(sortOrder).setDimensionIndex(firstDimension);
 
         List<Request> requests = new ArrayList<>();
 
-        requests.add(new Request().setSortRange(new SortRangeRequest().setRange(new GridRange().setSheetId(worksheetID).setStartRowIndex(startRow).setEndRowIndex(endRow).setStartColumnIndex(startColumn).setEndColumnIndex(endColumn)).setSortSpecs(Collections.singletonList(sortSpec))));
+        requests.add(new Request()
+                .setSortRange(new SortRangeRequest()
+                        .setRange(new GridRange()
+                                .setSheetId(worksheetID)
+                                .setStartRowIndex(startRow)
+                                .setEndRowIndex(endRow)
+                                .setStartColumnIndex(startColumn)
+                                .setEndColumnIndex(endColumn))
+                        .setSortSpecs(Collections.singletonList(sortSpec))));
 
         BatchUpdateSpreadsheetRequest body = new BatchUpdateSpreadsheetRequest()
                 .setRequests(requests);
@@ -425,11 +461,11 @@ public class analyzeData {
                         .setValues(answerChoicesValues));
 
                 bordersRequest.add(new Request().setUpdateBorders(new UpdateBordersRequest().setRange(new GridRange()
-                        .setSheetId(worksheetID)
-                        .setStartRowIndex(oddRow)
-                        .setEndRowIndex(oddRow+answersPerQuestion[i-3]+1)
-                        .setStartColumnIndex(1)
-                        .setEndColumnIndex(4))
+                                .setSheetId(worksheetID)
+                                .setStartRowIndex(oddRow)
+                                .setEndRowIndex(oddRow+answersPerQuestion[i-3]+1)
+                                .setStartColumnIndex(1)
+                                .setEndColumnIndex(4))
                         .setTop(border)
                         .setBottom(border)
                         .setLeft(border)
@@ -496,11 +532,11 @@ public class analyzeData {
                         .setValues(answerChoicesValues));
 
                 bordersRequest.add(new Request().setUpdateBorders(new UpdateBordersRequest().setRange(new GridRange()
-                        .setSheetId(worksheetID)
-                        .setStartRowIndex(evenRow)
-                        .setEndRowIndex(evenRow+answersPerQuestion[i-3]+1)
-                        .setStartColumnIndex(5)
-                        .setEndColumnIndex(8))
+                                .setSheetId(worksheetID)
+                                .setStartRowIndex(evenRow)
+                                .setEndRowIndex(evenRow+answersPerQuestion[i-3]+1)
+                                .setStartColumnIndex(5)
+                                .setEndColumnIndex(8))
                         .setTop(border)
                         .setBottom(border)
                         .setLeft(border)
@@ -576,8 +612,8 @@ public class analyzeData {
         }
 
         BatchUpdateValuesRequest body = new BatchUpdateValuesRequest()
-                    .setValueInputOption("USER_ENTERED")
-                    .setData(requests);
+                .setValueInputOption("USER_ENTERED")
+                .setData(requests);
         service.spreadsheets().values().batchUpdate(spreadsheetID, body).execute();
 
         BatchUpdateSpreadsheetRequest headingsBody = new BatchUpdateSpreadsheetRequest()
@@ -672,39 +708,29 @@ public class analyzeData {
         service.spreadsheets().batchUpdate(spreadsheetID, body).execute();
     }
 
-    public static void removePreviousAnalyses(String spreadsheetID) throws IOException {
-        Sheets service = builderWithCredentials(credential);
+    public static String numberstoCoordinates(int columnNumber, int rowNumber) {
 
+        StringBuilder result = new StringBuilder();
 
-        Spreadsheet request = service.spreadsheets().get(spreadsheetID).execute();
-        List<Sheet> listofSheets = request.getSheets();
-        List<String> sheetNames = Arrays.asList("Graded Assignment", "Grades Summary", "Most Missed Questions", "Grades Summary by Score", "Answer Choice Analysis", "Number of Answers Per Question");
-
-
-        for(int i = 0; i < listofSheets.size(); i++)
-        {
-            for (int j = 0; j < sheetNames.size(); j++)
-            {
-
-                if (listofSheets.get(i).getProperties().getTitle().equalsIgnoreCase(sheetNames.get(j))) {
-                    deleteSheet(spreadsheetID, listofSheets.get(i).getProperties().getSheetId());
-                }
-            }
-
+        while (columnNumber > 0) {
+            int index = (columnNumber - 1) % 26;
+            result.append((char) (index + 'A'));
+            columnNumber = (columnNumber - 1) / 26;
         }
 
+        result.append(rowNumber);
+        return result.toString();
+
     }
 
-    public static void deleteSheet(String spreadsheetID, int worksheetID) throws IOException {
-        Sheets service = builderWithCredentials(credential);
 
 
-        List<Request> requests = new ArrayList<>();
 
-        requests.add(new Request().setDeleteSheet(new DeleteSheetRequest().setSheetId(worksheetID)));
-        BatchUpdateSpreadsheetRequest body = new BatchUpdateSpreadsheetRequest().setRequests(requests);
-        service.spreadsheets().batchUpdate(spreadsheetID, body).execute();
-    }
+
+
+
+
+
 
 
 }

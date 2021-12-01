@@ -8,11 +8,8 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.servlet.view.RedirectView;
-
-import javax.script.ScriptException;
 import java.io.IOException;
-import java.net.URISyntaxException;
-import java.security.GeneralSecurityException;
+
 
 import static daurora.nebula.app.createTemplate.spreadsheetURL;
 
@@ -49,7 +46,7 @@ public class AppApplication {
 	}
 
 	@GetMapping("/templateoauth")
-	public String templateOAuth(@RequestParam(name="code") String authCode, @RequestParam(name="state") String state, Model model) throws IOException, ScriptException, GeneralSecurityException, URISyntaxException {
+	public String templateOAuth(@RequestParam(name="code") String authCode, Model model) throws IOException{
 
 		if (authCode != null) {
 			String spreadsheetID = templateHelper.createSpreadsheet(authCode, storedAssignmentName, storednumStudents, storednumQuestions);
@@ -63,30 +60,10 @@ public class AppApplication {
 		}
 	}
 
-	@GetMapping("/greeting")
-	public String greeting(@RequestParam(name = "name", required = false, defaultValue = "World") String name, Model model) {
-		model.addAttribute("name", name);
-		return "greeting";
-	}
-
-	@GetMapping("/error")
-	public String error() {
-		return "error";
-	}
-
-	@GetMapping("/analysisoauth")
-	public String analysisOAuth(@RequestParam(name="state") String state, @RequestParam(name="code") String authCode,  Model model) throws IOException, ScriptException, GeneralSecurityException, URISyntaxException {
-
-		if (authCode != null) {
-			analysisHelper.wrapper(authCode, storedSpreadsheetID, storednumStudents, storednumQuestions);
-			analysiscomplete(spreadsheetURL(storedSpreadsheetID), model);
-			return "../static/analysiscomplete";
-
-		}
-		else
-		{
-			return "error";
-		}
+	@GetMapping("../static/congratulations")
+	public String congratulations(@RequestParam(name = "spreadsheetURL") String spreadsheetURL, Model model) {
+		model.addAttribute("spreadsheetURL", spreadsheetURL);
+		return "../static/congratulations";
 	}
 
 	@GetMapping("/analyze")
@@ -106,17 +83,34 @@ public class AppApplication {
 
 	}
 
-	@GetMapping("../static/congratulations")
-	public String congratulations(@RequestParam(name = "spreadsheetURL", required = true) String spreadsheetURL, Model model) {
-		model.addAttribute("spreadsheetURL", spreadsheetURL);
-		return "../static/congratulations";
+	@GetMapping("/analysisoauth")
+	public String analysisOAuth(@RequestParam(name="code") String authCode,  Model model) throws IOException {
+
+		if (authCode != null) {
+			analyzeData.wrapper(authCode, storedSpreadsheetID, storednumStudents, storednumQuestions);
+			analysisComplete(spreadsheetURL(storedSpreadsheetID), model);
+			return "../static/analysiscomplete";
+
+		}
+		else
+		{
+			return "error";
+		}
 	}
+
+
+
+
 
 	@GetMapping("../static/analysiscomplete")
-	public String analysiscomplete(@RequestParam(name = "spreadsheetURL", required = true) String spreadsheetURL, Model model) {
+	public String analysisComplete(@RequestParam(name = "spreadsheetURL") String spreadsheetURL, Model model) {
 		model.addAttribute("spreadsheetURL", spreadsheetURL);
 		return "../static/congratulations";
 	}
 
+	@GetMapping("/error")
+	public String error() {
+		return "error";
+	}
 
 }

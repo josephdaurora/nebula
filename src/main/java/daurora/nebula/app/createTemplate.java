@@ -12,11 +12,7 @@ import com.google.api.client.json.jackson2.JacksonFactory;
 import com.google.api.services.sheets.v4.Sheets;
 import com.google.api.services.sheets.v4.SheetsScopes;
 import com.google.api.services.sheets.v4.model.*;
-
-import javax.script.ScriptException;
 import java.io.IOException;
-import java.net.URISyntaxException;
-import java.security.GeneralSecurityException;
 import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -27,7 +23,6 @@ import static daurora.nebula.app.analyzeData.getWorksheetID;
 
 public class createTemplate {
 
-    private static final String APPLICATION_NAME = "YOUR APP NAME HERE";
     private static final JsonFactory JSON_FACTORY = new JacksonFactory();
     private static final HttpTransport HTTP_TRANSPORT = new NetHttpTransport();
     private static final List<String> SCOPES = Collections.singletonList(SheetsScopes.SPREADSHEETS);
@@ -36,51 +31,39 @@ public class createTemplate {
     private static final String clientSecret = "YOUR SECRET HERE";
     private static final String CALLBACK_URI = "YOUR CALLBACK URL HERE";
 
-    private GoogleTokenResponse tokenResponse;
     private static Credential credential;
 
-    private static String stateToken;
     private final GoogleAuthorizationCodeFlow flow;
 
     public createTemplate() {
         flow = new GoogleAuthorizationCodeFlow.Builder(HTTP_TRANSPORT,
                 JSON_FACTORY, clientID, clientSecret, SCOPES).setAccessType("offline").build();
 
-        generateStateToken();
     }
 
     public String buildLoginUrl() {
-
         final GoogleAuthorizationCodeRequestUrl url = flow.newAuthorizationUrl();
-
+        SecureRandom sr1 = new SecureRandom();
+        String stateToken = "google;" + sr1.nextInt();
         return url.setRedirectUri(CALLBACK_URI).setState(stateToken).build();
     }
 
-    static void generateStateToken(){
-
-        SecureRandom sr1 = new SecureRandom();
-
-        stateToken = "google;"+sr1.nextInt();
-
-    }
 
     public static Sheets builder() {
-        Sheets service = new Sheets.Builder(HTTP_TRANSPORT, GsonFactory.getDefaultInstance(), credential )
-                .setApplicationName(APPLICATION_NAME)
+        return new Sheets.Builder(HTTP_TRANSPORT, GsonFactory.getDefaultInstance(), credential )
+                .setApplicationName("Nebula")
                 .build();
-        return service;
     }
 
     public static Sheets builderWithCredentials(Credential providedCredential) {
-        Sheets service = new Sheets.Builder(HTTP_TRANSPORT, GsonFactory.getDefaultInstance(), providedCredential )
-                .setApplicationName(APPLICATION_NAME)
+        return new Sheets.Builder(HTTP_TRANSPORT, GsonFactory.getDefaultInstance(), providedCredential )
+                .setApplicationName("Nebula")
                 .build();
-        return service;
     }
 
-    public String createSpreadsheet(String authCode, String spreadsheetTitle, int numStudents, int numQuestions) throws IOException, ScriptException, GeneralSecurityException, URISyntaxException {
+    public String createSpreadsheet(String authCode, String spreadsheetTitle, int numStudents, int numQuestions) throws IOException {
 
-        tokenResponse = flow.newTokenRequest(authCode).setRedirectUri(CALLBACK_URI).execute();
+        GoogleTokenResponse tokenResponse = flow.newTokenRequest(authCode).setRedirectUri(CALLBACK_URI).execute();
         credential = flow.createAndStoreCredential(tokenResponse, null);
 
         Sheets service = builder();
@@ -100,33 +83,7 @@ public class createTemplate {
         return spreadsheetID;
     }
 
-
-
-    public static String spreadsheetURL(String spreadsheetID) {
-        return "https://docs.google.com/spreadsheets/d/" + spreadsheetID + "/edit#gid=0";
-    }
-
-
-    public static void changeSheetTitle(Credential credential, String spreadsheetID, int worksheetID, String newTitle) throws IOException {
-
-        Sheets service = builderWithCredentials(credential);
-        List<Request> requests = new ArrayList<>();
-
-        requests.add( new Request()
-                .setUpdateSheetProperties(new UpdateSheetPropertiesRequest()
-                        .setProperties( new SheetProperties()
-                                .setSheetId(worksheetID)
-                                .setTitle(newTitle))
-                        .setFields("title")));
-
-        BatchUpdateSpreadsheetRequest body = new BatchUpdateSpreadsheetRequest().setRequests(requests);
-
-        service.spreadsheets().batchUpdate(spreadsheetID, body).execute();
-
-
-    }
-
-    public void dashboard(Credential credential, String spreadsheetID, int worksheetID, int numStudents, int numQuestions) throws IOException, GeneralSecurityException, URISyntaxException, ScriptException {
+    public void dashboard(Credential credential, String spreadsheetID, int worksheetID, int numStudents, int numQuestions) throws IOException {
 
         changeSheetTitle(credential, spreadsheetID,0, "Dashboard");
         headingCells(credential, spreadsheetID, worksheetID, 0,9,0,1, "MERGE_ROWS", 24, "Welcome to your Nebula Template!");
@@ -151,14 +108,130 @@ public class createTemplate {
         String formula = "=HYPERLINK(" + '"' + "  https://YOUR URL HERE/analyze?spreadsheetID=" + spreadsheetID + "&numStudents=" + numStudents + "&numQuestions=" + numQuestions + '"' + "," + '"' + "Analyze" + '"' + ")";
 
 
-        newButton(requests, spreadsheetID, worksheetID,4,6,9,11,18, formula, .6f,0f,1f,1f,1f,1f, formula);
+        newButton(requests, spreadsheetID, worksheetID,4,6,9,11,18, formula, .6f,0f,1f,1f,1f,1f);
 
         BatchUpdateSpreadsheetRequest body = new BatchUpdateSpreadsheetRequest().setRequests(requests);
         service.spreadsheets().batchUpdate(spreadsheetID, body).execute();
 
     }
 
-    public void newButton(List <Request> requests, String spreadsheetID, int worksheetID, int startColumn, int endColumn, int startRow, int endRow, int textSize, String data, float backgroundRed, float backgroundGreen, float backgroundBlue, float textRed, float textGreen, float textBlue, String url) throws  IOException {
+    public static void changeSheetTitle(Credential credential, String spreadsheetID, int worksheetID, String newTitle) throws IOException {
+
+        Sheets service = builderWithCredentials(credential);
+        List<Request> requests = new ArrayList<>();
+
+        requests.add( new Request()
+                .setUpdateSheetProperties(new UpdateSheetPropertiesRequest()
+                        .setProperties( new SheetProperties()
+                                .setSheetId(worksheetID)
+                                .setTitle(newTitle))
+                        .setFields("title")));
+
+        BatchUpdateSpreadsheetRequest body = new BatchUpdateSpreadsheetRequest().setRequests(requests);
+
+        service.spreadsheets().batchUpdate(spreadsheetID, body).execute();
+
+
+    }
+
+    public static void headingCells(Credential credential, String spreadsheetID, int worksheetID, int startColumn, int endColumn, int startRow, int endRow, String mergeType, int textSize, String data) throws IOException{
+
+
+        Sheets service = builderWithCredentials(credential);
+
+
+        mergeCells(credential, spreadsheetID,worksheetID, startColumn, endColumn, startRow, endRow, mergeType);
+
+        List<Request> requests = new ArrayList<>();
+
+
+        requests.add(new Request()
+                .setRepeatCell(new RepeatCellRequest()
+                        .setRange(new GridRange()
+                                .setSheetId(worksheetID)
+                                .setStartColumnIndex(startColumn)
+                                .setEndColumnIndex(endColumn)
+                                .setStartRowIndex(startRow)
+                                .setEndRowIndex(endRow))
+                        .setCell(new CellData()
+                                .setUserEnteredValue(new ExtendedValue().setStringValue(data))
+                                .setUserEnteredFormat(new CellFormat()
+                                        .setTextFormat(new TextFormat()
+                                                .setFontSize(textSize)
+                                                .setBold(Boolean.TRUE)
+
+                                        )
+                                        .setHorizontalAlignment("CENTER")
+                                )
+                        )
+
+                        .setFields("*")
+
+                )
+        );
+
+
+        BatchUpdateSpreadsheetRequest body = new BatchUpdateSpreadsheetRequest().setRequests(requests);
+        service.spreadsheets().batchUpdate(spreadsheetID, body).execute();
+
+    }
+
+    public static void mergeCells(Credential credential, String spreadsheetID, int worksheetID, int startColumn, int endColumn, int startRow, int endRow, String mergeType) throws IOException {
+
+
+        Sheets service = builderWithCredentials(credential);
+
+        List<Request> requests = new ArrayList<>();
+
+        requests.add( new Request()
+                .setMergeCells(new MergeCellsRequest()
+                        .setRange(new GridRange()
+                                .setSheetId(worksheetID)
+                                .setStartColumnIndex(startColumn)
+                                .setEndColumnIndex(endColumn)
+                                .setStartRowIndex(startRow)
+                                .setEndRowIndex(endRow))
+                        .setMergeType(mergeType)
+
+                ));
+
+
+        BatchUpdateSpreadsheetRequest body = new BatchUpdateSpreadsheetRequest().setRequests(requests);
+        service.spreadsheets().batchUpdate(spreadsheetID, body).execute();
+
+
+    }
+
+    public static void bulkAddText (List<Request> requests, int worksheetID, int startColumn, int endColumn, int startRow, int endRow, int textSize, String data, String wrapStrategy)  {
+
+        requests.add(new Request()
+                .setRepeatCell(new RepeatCellRequest()
+                        .setRange(new GridRange()
+                                .setSheetId(worksheetID)
+                                .setStartColumnIndex(startColumn)
+                                .setEndColumnIndex(endColumn)
+                                .setStartRowIndex(startRow)
+                                .setEndRowIndex(endRow))
+                        .setCell(new CellData()
+                                .setUserEnteredValue(new ExtendedValue().setStringValue(data))
+                                .setUserEnteredFormat(new CellFormat()
+                                        .setTextFormat(new TextFormat()
+                                                .setFontSize(textSize)
+
+                                        )
+                                        .setHorizontalAlignment("CENTER")
+                                        .setWrapStrategy(wrapStrategy)
+                                )
+                        )
+
+                        .setFields("*")
+
+                )
+        );
+
+    }
+
+    public void newButton(List <Request> requests, String spreadsheetID, int worksheetID, int startColumn, int endColumn, int startRow, int endRow, int textSize, String data, float backgroundRed, float backgroundGreen, float backgroundBlue, float textRed, float textGreen, float textBlue) throws  IOException {
 
         mergeCells(credential, spreadsheetID,worksheetID,startColumn, endColumn, startRow, endRow, "MERGE_ALL");
 
@@ -177,9 +250,7 @@ public class createTemplate {
                                         .setTextFormat(new TextFormat()
                                                 .setFontSize(textSize)
                                                 .setBold(Boolean.TRUE)
-                                                .setForegroundColor(new Color().setRed(textRed).setGreen(textGreen).setBlue(textBlue))
-                                                .setLink(new Link().setUri(url))
-                                        )
+                                                .setForegroundColor(new Color().setRed(textRed).setGreen(textGreen).setBlue(textBlue)))
                                         .setBackgroundColor(new Color().setRed(backgroundRed).setGreen(backgroundGreen).setBlue(backgroundBlue))
                                         .setHorizontalAlignment("CENTER")
                                         .setVerticalAlignment("MIDDLE")
@@ -208,12 +279,11 @@ public class createTemplate {
          service.spreadsheets()
                 .batchUpdate(spreadsheetID, body)
                 .execute();
-        int worksheetID = getWorksheetID(credential, spreadsheetID,index);
-        return worksheetID;
+        return getWorksheetID(credential, spreadsheetID,index);
 
     }
 
-    public static void formatStudentData(String spreadsheetID, int worksheetID, String spreadsheetTitle, int numStudents, int numQuestions) throws IOException, GeneralSecurityException, URISyntaxException, ScriptException {
+    public static void formatStudentData(String spreadsheetID, int worksheetID, String spreadsheetTitle, int numStudents, int numQuestions) throws IOException {
 
 
         Sheets service = builder();
@@ -245,101 +315,39 @@ public class createTemplate {
 
     }
 
-    public static void headingCells(Credential credential, String spreadsheetID, int worksheetID, int startColumn, int endColumn, int startRow, int endRow, String mergeType, int textSize, String data) throws IOException{
-
-
-        Sheets service = builderWithCredentials(credential);
-
-
-        mergeCells(credential, spreadsheetID,worksheetID, startColumn, endColumn, startRow, endRow, mergeType);
-
-        List<Request> requests = new ArrayList<>();
-
-
-        requests.add(new Request()
-                        .setRepeatCell(new RepeatCellRequest()
-                                .setRange(new GridRange()
-                                        .setSheetId(worksheetID)
-                                        .setStartColumnIndex(startColumn)
-                                        .setEndColumnIndex(endColumn)
-                                        .setStartRowIndex(startRow)
-                                        .setEndRowIndex(endRow))
-                                .setCell(new CellData()
-                                        .setUserEnteredValue(new ExtendedValue().setStringValue(data))
-                                        .setUserEnteredFormat(new CellFormat()
-                                                .setTextFormat(new TextFormat()
-                                                        .setFontSize(textSize)
-                                                        .setBold(Boolean.TRUE)
-
-                                                )
-                                                .setHorizontalAlignment("CENTER")
-                                        )
-                                )
-
-                        .setFields("*")
-
-                        )
-                );
-
-
-        BatchUpdateSpreadsheetRequest body = new BatchUpdateSpreadsheetRequest().setRequests(requests);
-        service.spreadsheets().batchUpdate(spreadsheetID, body).execute();
-
-    }
-
     public static void bulkCenteredCells(List<Request> queuedRequests, int worksheetID,  int startColumn, int endColumn, int startRow, int endRow, int textSize, String prefix, int offset, Boolean inColumns){
 
 
-        if (inColumns == true) {
+        int finalSuffix;
+        if (inColumns) {
 
-            int finalSuffix = endColumn-offset;
+            finalSuffix = endColumn - offset;
 
-            queuedRequests.add(new Request()
-                    .setRepeatCell(new RepeatCellRequest()
-                            .setRange(new GridRange()
-                                    .setSheetId(worksheetID)
-                                    .setStartColumnIndex(startColumn)
-                                    .setEndColumnIndex(endColumn)
-                                    .setStartRowIndex(startRow)
-                                    .setEndRowIndex(endRow))
-
-                            .setCell(new CellData()
-                                    .setUserEnteredValue(new ExtendedValue().setStringValue(prefix + finalSuffix))
-                                    .setUserEnteredFormat(new CellFormat()
-                                            .setTextFormat(new TextFormat()
-                                                    .setFontSize(textSize)
-
-                                            )
-                                            .setHorizontalAlignment("CENTER")
-                                    )
-                            )
-                            .setFields("*")));
         }
 
-        else if (inColumns == false){
-            int finalSuffix = endRow - offset;
-            queuedRequests.add(new Request()
-                    .setRepeatCell(new RepeatCellRequest()
-                            .setRange(new GridRange()
-                                    .setSheetId(worksheetID)
-                                    .setStartColumnIndex(startColumn)
-                                    .setEndColumnIndex(endColumn)
-                                    .setStartRowIndex(startRow)
-                                    .setEndRowIndex(endRow))
-
-                            .setCell(new CellData()
-                                    .setUserEnteredValue(new ExtendedValue().setStringValue(prefix + finalSuffix))
-                                    .setUserEnteredFormat(new CellFormat()
-                                            .setTextFormat(new TextFormat()
-                                                    .setFontSize(textSize)
-
-                                            )
-                                            .setHorizontalAlignment("CENTER")
-                                    )
-                            )
-                            .setFields("*")));
+        else {
+            finalSuffix = endRow - offset;
         }
+        queuedRequests.add(new Request()
+                .setRepeatCell(new RepeatCellRequest()
+                        .setRange(new GridRange()
+                                .setSheetId(worksheetID)
+                                .setStartColumnIndex(startColumn)
+                                .setEndColumnIndex(endColumn)
+                                .setStartRowIndex(startRow)
+                                .setEndRowIndex(endRow))
 
+                        .setCell(new CellData()
+                                .setUserEnteredValue(new ExtendedValue().setStringValue(prefix + finalSuffix))
+                                .setUserEnteredFormat(new CellFormat()
+                                        .setTextFormat(new TextFormat()
+                                                .setFontSize(textSize)
+
+                                        )
+                                        .setHorizontalAlignment("CENTER")
+                                )
+                        )
+                        .setFields("*")));
 
 
     }
@@ -363,61 +371,8 @@ public class createTemplate {
 
     }
 
-    public static void mergeCells(Credential credential, String spreadsheetID, int worksheetID, int startColumn, int endColumn, int startRow, int endRow, String mergeType) throws IOException {
-
-
-        Sheets service = builderWithCredentials(credential);
-
-        List<Request> requests = new ArrayList<>();
-
-        requests.add( new Request()
-                .setMergeCells(new MergeCellsRequest()
-                                .setRange(new GridRange()
-                                        .setSheetId(worksheetID)
-                                        .setStartColumnIndex(startColumn)
-                                        .setEndColumnIndex(endColumn)
-                                        .setStartRowIndex(startRow)
-                                        .setEndRowIndex(endRow))
-                                .setMergeType(mergeType)
-
-                        ));
-
-
-       BatchUpdateSpreadsheetRequest body = new BatchUpdateSpreadsheetRequest().setRequests(requests);
-       service.spreadsheets().batchUpdate(spreadsheetID, body).execute();
-
-
+    public static String spreadsheetURL(String spreadsheetID) {
+        return "https://docs.google.com/spreadsheets/d/" + spreadsheetID + "/edit#gid=0";
     }
-
-public static void bulkAddText (List<Request> requests, int worksheetID, int startColumn, int endColumn, int startRow, int endRow, int textSize, String data, String wrapStrategy)  {
-
-    requests.add(new Request()
-            .setRepeatCell(new RepeatCellRequest()
-                    .setRange(new GridRange()
-                            .setSheetId(worksheetID)
-                            .setStartColumnIndex(startColumn)
-                            .setEndColumnIndex(endColumn)
-                            .setStartRowIndex(startRow)
-                            .setEndRowIndex(endRow))
-                    .setCell(new CellData()
-                            .setUserEnteredValue(new ExtendedValue().setStringValue(data))
-                            .setUserEnteredFormat(new CellFormat()
-                                    .setTextFormat(new TextFormat()
-                                            .setFontSize(textSize)
-
-                                    )
-                                    .setHorizontalAlignment("CENTER")
-                                    .setWrapStrategy(wrapStrategy)
-                            )
-                    )
-
-                    .setFields("*")
-
-            )
-    );
-
-}
-
-
 }
 
