@@ -108,9 +108,4 @@ public class AppApplication {
 		return "../static/congratulations";
 	}
 
-	@GetMapping("/error")
-	public String error() {
-		return "error";
-	}
-
 }
